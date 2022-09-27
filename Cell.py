@@ -14,15 +14,7 @@ class Cell:
         self.note = note
 
     def fade(self):
-        self.velocity = int(self.velocity * .95)
+        self.velocity = int(self.velocity * .98)
 
     def set_velocity(self, velocity):
         self.velocity = velocity
-
-    def get_color(self):
-        vel_perc = self.velocity / maxVel
-        x, y, z, a = mpl.cm.Purples(vel_perc)
-        x = x * 255
-        y = y * 255
-        z = z * 255
-        return x, y, z
