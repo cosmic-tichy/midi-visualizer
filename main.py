@@ -1,6 +1,11 @@
+import os.path
 from threading import Thread
 import mido
 import pygame
+from mido import MidiFile
+
+import midioutwrapper
+from midioutwrapper import *
 from Board import *
 from Cell import *
 import matplotlib as mpl
@@ -9,28 +14,38 @@ import mido.backends.rtmidi
 
 midiout = rtmidi.MidiOut()
 
+midiWrapper = midioutwrapper.MidiOutWrapper(midiout, 0)
+
 available_ports = midiout.get_ports()
+print()
+for port in available_ports:
+    print(port)
 
-print(available_ports)
-
+print()
+print("(This is the port you'll select in ableton for midi input)")
+# port_num = int(input("port number to use for output (use numbers from list above): "))
+port_num = 1
+print()
 if available_ports:
-    midiout.open_port(2)
+    outport = midiout.open_port(port_num)
 else:
     midiout.open_virtual_port("My virtual output")
 
-
 names = mido.get_input_names()
-print(names)
-out_port = mido.open_output()
-inport = mido.open_input(names[1])
+for name in names:
+    print(name)
+# input_name = input("Name of the instrument to capture midi from (use list above): ")
+input_name = 'V49 2'
+inport = mido.open_input(input_name)
 
 default_offset = 36
+
 clock = pygame.time.Clock()
 pressed = {}
 to_be_active_stack = {}
 
 
-def get_color(val, map):
+def get_color(val, map, glow=False):
     if map == "magma":
         x, y, z, a = mpl.cm.magma(val)
     elif map == "viridis":
@@ -77,12 +92,22 @@ def get_color(val, map):
     x = x * 255
     y = y * 255
     z = z * 255
-    return x, y, z
+    a = a * 255
+
+    if glow:
+        return x, y, z, 50.0
+    else:
+        return x, y, z
 
 
 def get_cell_color(velocity, map):
     vel_perc = velocity / maxVel
     return get_color(vel_perc, map)
+
+
+def get_cell_glow(velocity, map):
+    vel_perc = velocity / maxVel
+    return get_color(vel_perc, map, True)
 
 
 def process_midi(inport, board):
@@ -104,12 +129,57 @@ def process_midi(inport, board):
         for pos in positions:
             x, y = pos
             vel = pressed.get((x, y)).velocity
+            pitch = pressed.get((x, y)).pitchbend
             pressed.pop((x, y))
             note_off = Cell(x, y)
             note_off.active = True
             note_off.set_note(msg.note)
             note_off.set_velocity(vel)
+            note_off.pitchbend = pitch
             to_be_active_stack[(x, y)] = note_off
+    elif msg.type == 'pitchwheel':
+        # print(msg)
+        midiWrapper.send_pitch_bend(msg.pitch, msg.channel)
+        for note in pressed:
+            cell = pressed.get(note)
+            cell.set_pitchbend(msg.pitch)
+        for note in to_be_active_stack:
+            cell = to_be_active_stack.get(note)
+            cell.set_pitchbend(msg.pitch)
+    elif msg.type == 'control_change':
+        midiout.send_message([0xB0, msg.control, msg.value])
+        # print(msg)
+
+
+def read_midi(file, board):
+    for msg in MidiFile(file).play():
+        if msg.type == 'note_on':
+            midiout.send_message([0x90, msg.note, msg.velocity])
+            positions = board.get_pos_with_note(msg.note)
+            for pos in positions:
+                x, y = pos
+                note_on = Cell(x, y)
+                note_on.active = False
+                note_on.set_note(msg.note)
+                note_on.set_velocity(msg.velocity)
+                pressed[(x, y)] = note_on
+        elif msg.type == 'note_off':
+            midiout.send_message([0x80, msg.note, msg.velocity])
+            positions = board.get_pos_with_note(msg.note)
+            for pos in positions:
+                x, y = pos
+                vel = pressed.get((x, y)).velocity
+                pressed.pop((x, y))
+                note_off = Cell(x, y)
+                note_off.active = True
+                note_off.set_note(msg.note)
+                note_off.set_velocity(vel)
+                to_be_active_stack[(x, y)] = note_off
+        elif msg.type == 'pitchwheel':
+            midiout.send_message([0x14, msg.channel, msg.pitch, msg.time])
+            print(msg)
+        elif msg.type == 'control_change':
+            print(msg)
 
 
 def init(dimx, dimy):
@@ -118,6 +188,7 @@ def init(dimx, dimy):
 
 
 def main(dimx, dimy, cellsize, color_map):
+    cell_offset = cellsize - 1
     global to_be_active_stack, pressed
     pygame.init()
     surface = pygame.display.set_mode((dimx * cellsize, dimy * cellsize))
@@ -128,6 +199,8 @@ def main(dimx, dimy, cellsize, color_map):
     while True:
         clock.tick(120)
         midi = Thread(target=process_midi, args=(inport, board))
+        # midi_file = "C:\\Users\\NBMow\\Documents\\projects\\midi-visualizer\\midi_files\\omegaMan_midi.mid"
+        # midi = Thread(target=read_midi, args=(midi_file, board))
         midi.start()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -142,24 +215,46 @@ def main(dimx, dimy, cellsize, color_map):
             cell = pressed_copy.get(pos)
             keys.append(pos)
             x, y = cell.pos
-            pygame.draw.rect(surface, get_cell_color(cell.velocity, color_map),
-                             (x * cellsize, y * cellsize, cellsize, cellsize))
+            pitch_perc = cell.pitchbend / 100
+            pitch_scale = (int(cellsize / 2) * pitch_perc) / 1.5
+            pitch_offset = (2 * (int(cellsize / 2) * pitch_perc)) / 1.5
+
+            rect_surface = pygame.Surface((cellsize, cellsize))
+            rect_surface.set_alpha(100 - (70*pitch_perc))
+            rect_surface.fill(get_cell_color(cell.velocity, color_map))
+            surface.blit(rect_surface, ((x * cellsize), (y * cellsize)))
+
+            rect = pygame.draw.rect(surface, (get_cell_color(cell.velocity, color_map)),
+                                    ((x * cellsize) + pitch_scale, (y * cellsize) + pitch_scale,
+                                     cell_offset - pitch_offset, cell_offset - pitch_offset))
+
         to_be_active_copy = to_be_active_stack.copy()
         for pos in to_be_active_copy:
             if pos not in keys:
                 cell = to_be_active_copy.get(pos)
                 x, y = cell.pos
+                pitch_perc = cell.pitchbend / 100
+                pitch_scale = (int(cellsize / 2) * pitch_perc) / 2
+                pitch_offset = (2 * (int(cellsize / 2) * pitch_perc)) / 2
                 if cell.velocity < 5:
                     to_be_active_stack.pop((x, y))
                 else:
                     cell.fade()
-                pygame.draw.rect(surface, get_cell_color(cell.velocity, color_map),
-                                 (x * cellsize, y * cellsize, cellsize, cellsize))
+                rect_surface = pygame.Surface((cellsize, cellsize))
+                rect_surface.set_alpha(100 - (70 * pitch_perc))
+                rect_surface.fill(get_cell_color(cell.velocity, color_map))
+                surface.blit(rect_surface, ((x * cellsize), (y * cellsize)))
+
+                rect = pygame.draw.rect(surface, get_cell_color(cell.velocity, color_map),
+                                        ((x * cellsize) + pitch_scale, (y * cellsize) + pitch_scale,
+                                         cell_offset - pitch_offset, cell_offset - pitch_offset))
 
         pygame.display.update()
 
 
 if __name__ == "__main__":
+    print()
+    print("Available color maps: ")
     color_maps = [('magma', 1), ('viridis', 2), ('inferno', 3), ('cividis', 4), ('plasma', 5),
                   ('Purples', 6), ('Blues', 7), ('Reds', 8), ('PuBu', 9), ('bone', 10),
                   ('cool', 11), ('pink', 12), ('copper', 13), ('afmhot', 14), ('gnuplot2', 15),
@@ -167,5 +262,6 @@ if __name__ == "__main__":
                   ('prism', 20)]
     for color in color_maps:
         print(color[0])
-    color_map = input("input color map name from list above: ")
+    # color_map = input("input color map name from list above: ")
+    color_map = 'gnuplot2'
     main(10, 10, 100, color_map)
