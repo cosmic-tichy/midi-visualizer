@@ -5,37 +5,43 @@ import pygame
 from mido import MidiFile
 
 import midioutwrapper
-from midioutwrapper import *
 from Board import *
 from Cell import *
 import matplotlib as mpl
 import rtmidi
 import mido.backends.rtmidi
+import inquirer
 
 midiout = rtmidi.MidiOut()
 
 midiWrapper = midioutwrapper.MidiOutWrapper(midiout, 0)
 
 available_ports = midiout.get_ports()
-print()
-for port in available_ports:
-    print(port)
+names = mido.get_input_names()
 
-print()
-print("(This is the port you'll select in ableton for midi input)")
-# port_num = int(input("port number to use for output (use numbers from list above): "))
-port_num = 1
-print()
+questions = [
+    inquirer.List('port',
+                  message="Select port number for output to DAW:",
+                  choices=available_ports
+                  ),
+    inquirer.List('instrument',
+                  message="Select instrument for capturing MIDI: ",
+                  choices=names
+                  ),
+]
+answers = inquirer.prompt(questions)
+
+port_num = available_ports.index(answers['port'])
+input_name = answers['instrument']
+
+# port_num = 1
+# input_name = 'V49 2'
+
 if available_ports:
     outport = midiout.open_port(port_num)
 else:
     midiout.open_virtual_port("My virtual output")
 
-names = mido.get_input_names()
-for name in names:
-    print(name)
-# input_name = input("Name of the instrument to capture midi from (use list above): ")
-input_name = 'V49 2'
 inport = mido.open_input(input_name)
 
 default_offset = 36
@@ -220,7 +226,7 @@ def main(dimx, dimy, cellsize, color_map):
             pitch_offset = (2 * (int(cellsize / 2) * pitch_perc)) / 1.5
 
             rect_surface = pygame.Surface((cellsize, cellsize))
-            rect_surface.set_alpha(100 - (70*pitch_perc))
+            rect_surface.set_alpha(100 - (70 * pitch_perc))
             rect_surface.fill(get_cell_color(cell.velocity, color_map))
             surface.blit(rect_surface, ((x * cellsize), (y * cellsize)))
 
@@ -263,5 +269,5 @@ if __name__ == "__main__":
     for color in color_maps:
         print(color[0])
     # color_map = input("input color map name from list above: ")
-    color_map = 'gnuplot2'
+    color_map = 'magma   '
     main(10, 10, 100, color_map)
