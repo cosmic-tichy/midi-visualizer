@@ -1,4 +1,5 @@
 import os.path
+import time
 from threading import Thread
 import mido
 import pygame
@@ -19,6 +20,14 @@ midiWrapper = midioutwrapper.MidiOutWrapper(midiout, 0)
 available_ports = midiout.get_ports()
 names = mido.get_input_names()
 
+colors = []
+
+color_maps = ['magma', 'viridis', 'inferno', 'cividis', 'plasma',
+              'Purples', 'Blues', 'Reds', 'PuBu', 'bone',
+              'cool', 'pink', 'copper', 'afmhot', 'gnuplot2',
+              'cubehelix', 'gist_earth', 'terrain', 'ocean',
+              'prism']
+
 questions = [
     inquirer.List('port',
                   message="Select port number for output to DAW:",
@@ -28,11 +37,16 @@ questions = [
                   message="Select instrument for capturing MIDI: ",
                   choices=names
                   ),
+    inquirer.List('color_map',
+                  message="Select color map for visualizer: ",
+                  choices=color_maps
+                  ),
 ]
 answers = inquirer.prompt(questions)
 
 port_num = available_ports.index(answers['port'])
 input_name = answers['instrument']
+color_map = answers['color_map']
 
 # port_num = 1
 # input_name = 'V49 2'
@@ -193,9 +207,9 @@ def init(dimx, dimy):
     return cells
 
 
-def main(dimx, dimy, cellsize, color_map):
+def main(dimx, dimy, cellsize):
     cell_offset = cellsize - 1
-    global to_be_active_stack, pressed
+    global to_be_active_stack, pressed, color_map
     pygame.init()
     surface = pygame.display.set_mode((dimx * cellsize, dimy * cellsize))
     pygame.display.set_caption("Midi Visualizer")
@@ -205,7 +219,7 @@ def main(dimx, dimy, cellsize, color_map):
     while True:
         clock.tick(120)
         midi = Thread(target=process_midi, args=(inport, board))
-        # midi_file = "C:\\Users\\NBMow\\Documents\\projects\\midi-visualizer\\midi_files\\omegaMan_midi.mid"
+        # midi_file = "C:\\Users\\NBMow\\Documents\\projects\\midi-visualizer\\midi_files\\test2 .mid"
         # midi = Thread(target=read_midi, args=(midi_file, board))
         midi.start()
         for event in pygame.event.get():
@@ -259,15 +273,5 @@ def main(dimx, dimy, cellsize, color_map):
 
 
 if __name__ == "__main__":
-    print()
-    print("Available color maps: ")
-    color_maps = [('magma', 1), ('viridis', 2), ('inferno', 3), ('cividis', 4), ('plasma', 5),
-                  ('Purples', 6), ('Blues', 7), ('Reds', 8), ('PuBu', 9), ('bone', 10),
-                  ('cool', 11), ('pink', 12), ('copper', 13), ('afmhot', 14), ('gnuplot2', 15),
-                  ('cubehelix', 16), ('gist_earth', 17), ('terrain', 18), ('ocean', 19),
-                  ('prism', 20)]
-    for color in color_maps:
-        print(color[0])
     # color_map = input("input color map name from list above: ")
-    color_map = 'magma   '
-    main(10, 10, 100, color_map)
+    main(10, 10, 100)
